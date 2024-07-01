@@ -24,5 +24,6 @@ public class GameManager : MonoSingleTone<GameManager>
     public void Euclidean()
     {
         Astar.Atype = 8;
+        Debug.Log("rj");
     }
 }
