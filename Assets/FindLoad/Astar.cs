@@ -3,95 +3,125 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using UnityEngine.Tilemaps;
-using System.Threading.Tasks;
-using System;
-using Unity.VisualScripting;
 
 public class Astar : MonoBehaviour
 {
     public int Atype;
     public Vector3Int StrPos;
     public Vector3Int EndPos;
-    public CellData CurrentData;
-    public List<CellData> Cells = new();
-    public HashSet<Vector3Int> WallPoses = new();
-    public HashSet<Vector3Int> CheckedCells = new();
-    Vector3Int[] dir = new Vector3Int[8]
+
+    public List<CellData> openList = new List<CellData>();
+    public HashSet<Vector3Int> closedList = new HashSet<Vector3Int>();
+    public HashSet<Vector3Int> WallPoses = new HashSet<Vector3Int>();
+
+    public Vector3Int[] dir = new Vector3Int[8]
     {
-        new Vector3Int(1, 0, 0), new Vector3Int(-1, 0, 0), new Vector3Int(0, 1, 0), new Vector3Int(0, -1, 0), new Vector3Int(1, -1, 0), new Vector3Int(-1, 1, 0), new Vector3Int(1, 1, 0), new Vector3Int(-1, -1, 0) }
-    ;
+        new Vector3Int(1, 0, 0), new Vector3Int(-1, 0, 0), new Vector3Int(0, 1, 0), new Vector3Int(0, -1, 0),
+        new Vector3Int(1, -1, 0), new Vector3Int(-1, 1, 0), new Vector3Int(1, 1, 0), new Vector3Int(-1, -1, 0)
+    };
 
     public IEnumerator FindTarget()
     {
-        FirstSet();
-        while (Cells.Count > 0)
+        openList.Clear();
+        closedList.Clear();
+        openList.Add(new CellData(StrPos, null, 0, CalculateHeuristic(StrPos, EndPos)));
+
+        while (openList.Count > 0)
         {
-            CurrentData = Cells.First();
-            Cells.Remove(Cells.First());
-            if (CurrentData.CurrentPos == EndPos)
+            openList = openList.OrderBy(x => x.F).ThenByDescending(x => x.G).ToList();
+            CellData currentCell = openList.First();
+            openList.Remove(currentCell);
+
+
+            if (currentCell.CurrentPos == EndPos)
             {
-                for (int i = 1; i < CurrentData.CellRoad.Count - 1; i++)
-                {
-                    Map.Instance.FillColor(CurrentData.CellRoad[i], Color.green);
-                }
+                FillRoad(currentCell);
                 yield break;
             }
-            FindDir(CurrentData);
+
+            for (int i = 0; i < Atype; i++)
+            {
+                Vector3Int neighborPos = currentCell.CurrentPos + dir[i];
+
+                if (WallPoses.Contains(neighborPos) || closedList.Contains(neighborPos) || IsCornerCutting(currentCell.CurrentPos, neighborPos))
+                {
+                    continue;
+                }
+
+                int tentativeG = currentCell.G + ((Mathf.Abs(dir[i].x) + Mathf.Abs(dir[i].y) == 1) ? 10 : 14);
+                int h = CalculateHeuristic(neighborPos, EndPos);
+                int f = tentativeG + h;
+
+                CellData existingNeighbor = openList.Find(cell => cell.CurrentPos == neighborPos);
+                if (existingNeighbor != null && tentativeG >= existingNeighbor.G)
+                {
+                    continue;
+                }
+
+                if (existingNeighbor == null)
+                {
+                    openList.Add(new CellData(neighborPos, currentCell, tentativeG, h));
+                    if (Map.Instance.Tilemap.GetColor(neighborPos) != Color.red)
+                    { Map.Instance.FillColor(neighborPos, Color.yellow); }
+                    closedList.Add(currentCell.CurrentPos);
+                }
+                else
+                {
+                    existingNeighbor.Parent = currentCell;
+                    existingNeighbor.G = tentativeG;
+                    existingNeighbor.F = f;
+                }
+            }
+
             yield return null;
         }
     }
 
-    private void FirstSet()
+    private void FillRoad(CellData cellData)
     {
-        List<Vector3Int> pos = new();
-        pos.Add(StrPos);
-        CheckedCells.Add(StrPos);
-        CurrentData = new CellData(StrPos, pos);
-        Cells.Add(CurrentData);
+        if (cellData.Parent != null)
+        {
+            if(Map.Instance.Tilemap.GetColor(cellData.CurrentPos) != Color.red)
+                Map.Instance.FillColor(cellData.CurrentPos, Color.green);
+            FillRoad(cellData.Parent);
+        }
     }
 
-    public void FindDir(CellData cell)
+    private int CalculateHeuristic(Vector3Int currentPos, Vector3Int endPos)
     {
-        Vector3Int pos;
-        int x, y, min, max;
-        for (int i = 0; i < Atype; i++)
-        {
-            pos = cell.CurrentPos + dir[i];
-            if (!WallPoses.Contains(pos) && !CheckedCells.Contains(pos))
-            {
-                CellData currentCell = new CellData(pos, cell.CellRoad);
-                currentCell.CellRoad.Add(pos);
-                //currentCell.G = (currentCell.CellRoad.Count - 1);
-                currentCell.G = (Atype == 4) ? (currentCell.CellRoad.Count - 1) + 10 : (currentCell.CellRoad.Count - 1) + 14; //휴리스틱 정확도를 올리기 위한 작업1
-                x = Mathf.Abs(currentCell.CurrentPos.x - EndPos.x);
-                y = Mathf.Abs(currentCell.CurrentPos.y - EndPos.y);
-                min = Mathf.Min(x, y);
-                max = Mathf.Max(x, y);
-                currentCell.H = min * 14 + (max - min) * 10;//휴리스틱 정확도를 올리기 위한 작업2 ,가변 맨해튼 거리
-                currentCell.F = currentCell.G + currentCell.H;
-                Cells.Add((currentCell));
-                if (Map.Instance.Tilemap.GetColor(currentCell.CurrentPos) != Color.red)
-                {
-                    Map.Instance.FillColor(currentCell.CurrentPos, Color.yellow);
-                }
-                CheckedCells.Add(pos);
-            }
-        }
-        Cells = Cells.OrderBy(x => x.F).ToList();
+        int x = Mathf.Abs(endPos.x - currentPos.x);
+        int y = Mathf.Abs(endPos.y - currentPos.y);
+        int min = Mathf.Min(x, y);
+        int max = Mathf.Max(x, y);
+        return min * 14 + (max - min) * 10;
     }
+
+    private bool IsCornerCutting(Vector3Int currentPos, Vector3Int nextPos)
+    {
+        if (Mathf.Abs(currentPos.x - nextPos.x) == 1 && Mathf.Abs(currentPos.y - nextPos.y) == 1)
+        {
+            Vector3Int neighbor1 = new Vector3Int(currentPos.x, nextPos.y, 0);
+            Vector3Int neighbor2 = new Vector3Int(nextPos.x, currentPos.y, 0);
+            return WallPoses.Contains(neighbor1) && WallPoses.Contains(neighbor2);
+        }
+        return false;
+    }
+
     public class CellData
     {
-        public int F;
+        public Vector3Int CurrentPos;
+        public CellData Parent;
         public int G;
         public int H;
-        public Vector3Int CurrentPos;
-        public List<Vector3Int> CellRoad;
+        public int F;
 
-        public CellData(Vector3Int currentPos, List<Vector3Int> pos)
+        public CellData(Vector3Int currentPos, CellData parent, int g, int h)
         {
             this.CurrentPos = currentPos;
-            this.CellRoad = pos.ToList();
+            this.Parent = parent;
+            this.G = g;
+            this.H = h;
+            this.F = g + h;
         }
     }
 }
-
